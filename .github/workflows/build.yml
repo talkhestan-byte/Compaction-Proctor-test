@@ -17,7 +17,8 @@ jobs:
       - name: Install Capacitor
         run: |
           npm init -y
-          npm i @capacitor/core @capacitor/cli @capacitor/android
+          npm i @capacitor/core @capacitor/cli @capacitor/android @capacitor/filesystem @capacitor/share
+          npm i -D @capacitor/assets
       - name: Prepare web files
         run: |
           mkdir -p www
@@ -26,6 +27,7 @@ jobs:
       - name: Build Android
         run: |
           npx cap add android
+          npx capacitor-assets generate --android
           npx cap sync android
           cd android
           chmod +x gradlew
