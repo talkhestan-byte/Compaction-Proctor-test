@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>آزمایش تراکم خاک</title>
+<style>
+:root{--ink:#14233a;--line:#b8c2d0;--head:#dde5ef;--calc:#e9f1e6;--soil:#8a4b1f;--bg:#eef1f5}
+*{box-sizing:border-box}
+body{margin:0;padding:10px;font:14px Tahoma,"Segoe UI",sans-serif;background:var(--bg);color:var(--ink)}
+h1{font-size:17px;margin:2px 0 10px}
+h2{font-size:14px;margin:0 0 8px}
+.card{background:#fff;border:1px solid var(--line);border-radius:6px;padding:10px;margin-bottom:12px}
+.top{display:flex;flex-wrap:wrap;gap:8px}
+.top label{flex:1 1 120px;display:flex;flex-direction:column;gap:3px;font-size:12px}
+input,select,button{font:inherit;padding:6px;border:1px solid var(--line);border-radius:4px;width:100%;text-align:center;background:#fff;color:var(--ink)}
+button{width:auto;background:var(--ink);color:#fff;border:0;padding:7px 12px;margin-top:8px}
+.wrap{overflow-x:auto}
+table{border-collapse:collapse;min-width:820px;width:100%}
+th,td{border:1px solid var(--line);padding:3px;text-align:center;font-size:12px}
+th{background:var(--head)}
+td.l{position:sticky;right:0;background:#f7f9fc;text-align:right;min-width:130px;font-weight:bold}
+td.sec{background:var(--head);font-weight:bold;text-align:right}
+td.c{background:var(--calc);direction:ltr}
+td input{padding:4px;min-width:54px}
+.res{display:flex;gap:8px;margin-top:10px}
+.res div{flex:1;border:1px solid var(--line);border-radius:4px;padding:8px;text-align:center;font-size:12px}
+.res b{display:block;font-size:18px;color:var(--soil);direction:ltr}
+canvas{width:100%;height:400px;display:block}
+</style>
+</head>
+<body>
+<h1>آزمایش تراکم خاک (پروکتور)</h1>
+
+<div class="card">
+ <div class="top">
+  <label>نوع آزمایش<select id="type"><option>استاندارد (D698 / T99)</option><option>اصلاح‌شده (D1557 / T180)</option></select></label>
+  <label>قالب<select id="preset"><option value="944">۴ اینچ (944 cm³)</option><option value="2124">۶ اینچ (2124 cm³)</option><option value="">دلخواه</option></select></label>
+  <label>حجم قالب (cm³)<input id="vol" type="number" inputmode="decimal" value="944"></label>
+  <label>جرم قالب (g)<input id="mold" type="number" inputmode="decimal"></label>
+  <label>وزن مخصوص دانه‌ها Gs<input id="gs" type="number" inputmode="decimal" value="2.65"></label>
+ </div>
+ <button id="demo">پر کردن با داده‌ی نمونه</button>
+</div>
+
+<div class="card">
+ <h2>جدول محاسبات</h2>
+ <div class="wrap"><table id="tb"></table></div>
+ <div class="res">
+  <div>رطوبت بهینه OMC<b id="omc">—</b></div>
+  <div>حداکثر وزن مخصوص خشک<b id="gdm">—</b></div>
+ </div>
+</div>
+
+<div class="card">
+ <h2>منحنی تراکم و منحنی‌های درجه اشباع</h2>
+ <canvas id="cv"></canvas>
+</div>
+
+<script>
+const N=5,$=id=>document.getElementById(id);
+const num=id=>{const v=parseFloat($(id).value);return isNaN(v)?NaN:v};
+const put=(id,v,d)=>{$(id).textContent=isFinite(v)?v.toFixed(d):''};
+
+function build(){
+  let h='<tr><th>شرح</th>';
+  for(let i=0;i<N;i++)h+=`<th colspan="2">مرحله ${i+1}</th>`;
+  h+='</tr>';
+  const sec=t=>`<tr><td class="l sec">${t}</td>${'<td class="sec" colspan="2"></td>'.repeat(N)}</tr>`;
+  const row=(t,f)=>{let r=`<tr><td class="l">${t}</td>`;for(let i=0;i<N;i++)r+=f(i);return r+'</tr>'};
+  const inp=id=>`<input id="${id}" type="number" inputmode="decimal">`;
+  const one=(k,inpt)=>i=>`<td colspan="2" ${inpt?'':'class="c"'} ${inpt?'':`id="${k}${i}"`}>${inpt?inp(k+i):''}</td>`;
+  const two=(k,inpt)=>i=>[0,1].map(j=>inpt?`<td>${inp(k+i+j)}</td>`:`<td class="c" id="${k}${i}${j}"></td>`).join('');
+  h+=sec('وزن مخصوص تر');
+  h+=row('جرم قالب + خاک تر (g)',one('m',1));
+  h+=row('جرم خاک تر (g)',one('ms'));
+  h+=row('وزن مخصوص تر γt (g/cm³)',one('gt'));
+  h+=sec('تعیین رطوبت');
+  h+=row('شماره ظرف',i=>'<td>۱</td><td>۲</td>'.repeat(1));
+  h+=row('جرم ظرف + خاک تر (g)',two('wt',1));
+  h+=row('جرم ظرف + خاک خشک (g)',two('dr',1));
+  h+=row('جرم ظرف (g)',two('ta',1));
+  h+=row('جرم آب (g)',two('mw'));
+  h+=row('جرم خاک خشک (g)',two('md'));
+  h+=row('درصد رطوبت w (%)',two('w'));
+  h+=row('رطوبت متوسط (%)',one('wa'));
+  h+=sec('نتایج');
+  h+=row('وزن مخصوص خشک γd (g/cm³)',one('gd'));
+  h+=row('وزن مخصوص خشک γd (kN/m³)',one('gk'));
+  h+=row('نسبت تخلخل e',one('e'));
+  h+=row('درجه اشباع S (%)',one('S'));
+  h+=row('درصد فضای خالی هوا Va (%)',one('va'));
+  $('tb').innerHTML=h;
+}
+
+function calc(){
+  const mold=num('mold'),V=num('vol'),Gs=num('gs'),pts=[];
+  for(let i=0;i<N;i++){
+    const ms=num('m'+i)-mold,gt=ms/V;
+    put('ms'+i,ms,1);put('gt'+i,gt,3);
+    const ws=[];
+    for(let j=0;j<2;j++){
+      const a=num('wt'+i+j),b=num('dr'+i+j),c=num('ta'+i+j);
+      const mw=a-b,md=b-c,w=mw/md*100;
+      put('mw'+i+j,mw,2);put('md'+i+j,md,2);put('w'+i+j,w,2);
+      if(isFinite(w))ws.push(w);
+    }
+    const wa=ws.length?ws.reduce((s,x)=>s+x,0)/ws.length:NaN;
+    put('wa'+i,wa,2);
+    const gd=gt/(1+wa/100),e=Gs/gd-1;
+    put('gd'+i,gd,3);put('gk'+i,gd*9.81,2);put('e'+i,e,3);
+    put('S'+i,wa*Gs/e,1);
+    put('va'+i,100*(1-gd*(1/Gs+wa/100)),1);
+    if(isFinite(gd)&&isFinite(wa))pts.push({w:wa,d:gd});
+  }
+  draw(pts,Gs);
+}
+
+function fit(p){
+  const S=[0,0,0,0,0],T=[0,0,0];
+  p.forEach(q=>{for(let k=0;k<5;k++)S[k]+=q.w**k;for(let k=0;k<3;k++)T[k]+=q.d*q.w**k});
+  const M=[[S[4],S[3],S[2],T[2]],[S[3],S[2],S[1],T[1]],[S[2],S[1],S[0],T[0]]];
+  for(let i=0;i<3;i++){
+    let m=i;for(let r=i+1;r<3;r++)if(Math.abs(M[r][i])>Math.abs(M[m][i]))m=r;
+    [M[i],M[m]]=[M[m],M[i]];
+    if(Math.abs(M[i][i])<1e-12)return null;
+    for(let r=0;r<3;r++)if(r!==i){const f=M[r][i]/M[i][i];for(let c=i;c<4;c++)M[r][c]-=f*M[i][c]}
+  }
+  return [M[0][3]/M[0][0],M[1][3]/M[1][1],M[2][3]/M[2][2]];
+}
+
+function draw(pts,Gs){
+  const cv=$('cv'),dpr=window.devicePixelRatio||1,W=cv.clientWidth,H=cv.clientHeight;
+  cv.width=W*dpr;cv.height=H*dpr;
+  const x=cv.getContext('2d');x.scale(dpr,dpr);x.direction='ltr';
+  let w0=0,w1=30,y0=1.4,y1=2.2;
+  if(pts.length){
+    const ws=pts.map(p=>p.w),ds=pts.map(p=>p.d);
+    w0=Math.max(0,Math.floor(Math.min(...ws)-3));w1=Math.ceil(Math.max(...ws)+3);
+    y0=Math.floor((Math.min(...ds)-0.15)*20)/20;y1=Math.ceil((Math.max(...ds)+0.15)*20)/20;
+  }
+  const L=46,R=34,T=12,B=36;
+  const px=w=>L+(w-w0)/(w1-w0)*(W-L-R),py=d=>H-B-(d-y0)/(y1-y0)*(H-T-B);
+  x.font='11px Tahoma';x.strokeStyle='#d5dbe4';x.fillStyle='#14233a';x.lineWidth=1;
+  x.textAlign='center';
+  const ws=Math.max(1,Math.round((w1-w0)/8));
+  for(let w=w0;w<=w1;w+=ws){x.beginPath();x.moveTo(px(w),T);x.lineTo(px(w),H-B);x.stroke();x.fillText(w,px(w),H-B+14)}
+  x.textAlign='right';
+  for(let d=y0;d<=y1+1e-9;d+=0.05){x.beginPath();x.moveTo(L,py(d));x.lineTo(W-R,py(d));x.stroke();x.fillText(d.toFixed(2),L-4,py(d)+4)}
+  x.strokeStyle='#14233a';x.strokeRect(L,T,W-L-R,H-T-B);
+  x.textAlign='center';x.fillText('رطوبت (%)',(L+W-R)/2,H-6);
+  x.save();x.translate(11,(T+H-B)/2);x.rotate(-Math.PI/2);x.fillText('γd (g/cm³)',0,0);x.restore();
+  if(!(Gs>0))return;
+  x.save();x.beginPath();x.rect(L,T,W-L-R,H-T-B);x.clip();
+  [100,90,80,70,60].forEach((S,k)=>{
+    x.strokeStyle=`hsl(210,${70-k*8}%,${38+k*7}%)`;x.lineWidth=1.3;x.beginPath();
+    let first=true,lx=null,ly=null;
+    for(let w=Math.max(w0,0.2);w<=w1+0.01;w+=0.2){
+      const d=Gs/(1+w*Gs/S),X=px(w),Y=py(d);
+      first?x.moveTo(X,Y):x.lineTo(X,Y);first=false;
+      if(Y>=T&&Y<=H-B){lx=X;ly=Y}
+    }
+    x.stroke();
+    if(lx!==null){x.fillStyle=x.strokeStyle;x.textAlign='left';x.fillText('S='+S+'%',Math.min(lx+3,W-R-40),ly-3)}
+  });
+  x.restore();
+  $('omc').textContent='—';$('gdm').textContent='—';
+  if(!pts.length)return;
+  x.fillStyle='#8a4b1f';
+  pts.forEach(p=>{x.beginPath();x.arc(px(p.w),py(p.d),4,0,7);x.fill()});
+  const c=pts.length>=3?fit(pts):null;
+  if(c&&c[0]<0){
+    x.save();x.beginPath();x.rect(L,T,W-L-R,H-T-B);x.clip();
+    x.strokeStyle='#8a4b1f';x.lineWidth=2.2;x.beginPath();
+    const a=Math.min(...pts.map(p=>p.w))-1,b=Math.max(...pts.map(p=>p.w))+1;
+    for(let w=a;w<=b+1e-9;w+=0.1){const Y=py(c[0]*w*w+c[1]*w+c[2]);w===a?x.moveTo(px(w),Y):x.lineTo(px(w),Y)}
+    x.stroke();x.restore();
+    const wo=-c[1]/(2*c[0]),dm=c[0]*wo*wo+c[1]*wo+c[2];
+    x.setLineDash([5,4]);x.lineWidth=1;x.beginPath();
+    x.moveTo(px(wo),H-B);x.lineTo(px(wo),py(dm));x.lineTo(L,py(dm));x.stroke();x.setLineDash([]);
+    $('omc').textContent=wo.toFixed(1)+' %';$('gdm').textContent=dm.toFixed(3)+' g/cm³';
+  }
+}
+
+function demo(){
+  $('mold').value=4200;
+  const w=[8,10,12,14,16],gd=[1.80,1.86,1.90,1.87,1.82];
+  for(let i=0;i<N;i++){
+    $('m'+i).value=(4200+gd[i]*(1+w[i]/100)*944).toFixed(0);
+    [0,0.2].forEach((dv,j)=>{
+      $('ta'+i+j).value=30;$('dr'+i+j).value=130;$('wt'+i+j).value=(130+w[i]+dv).toFixed(1);
+    });
+  }
+  calc();
+}
+
+build();
+$('tb').addEventListener('input',calc);
+['vol','mold','gs'].forEach(k=>$(k).addEventListener('input',calc));
+$('preset').onchange=e=>{if(e.target.value){$('vol').value=e.target.value;calc()}};
+$('demo').onclick=demo;
+window.addEventListener('resize',calc);
+calc();
+</script>
+</body>
+</html>
