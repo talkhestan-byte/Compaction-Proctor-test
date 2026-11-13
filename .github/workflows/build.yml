@@ -28,7 +28,36 @@ jobs:
         run: |
           npx cap add android
           npx capacitor-assets generate --android
-      - name: Add save-to-Downloads plugin
+      - name: Enable Kotlin and add Poolakey
+        run: |
+          python3 - <<'PYEOF'
+          f = "android/app/build.gradle"
+          s = open(f, encoding="utf-8").read()
+          header = """buildscript {
+              repositories {
+                  google()
+                  mavenCentral()
+              }
+              dependencies {
+                  classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:1.9.24"
+              }
+          }
+          """
+          assert s.startswith("apply plugin: 'com.android.application'")
+          s = header + "apply plugin: 'com.android.application'\napply plugin: 'kotlin-android'\n" + s[len("apply plugin: 'com.android.application'\n"):]
+          s += """
+
+          repositories {
+              maven { url 'https://jitpack.io' }
+          }
+          dependencies {
+              implementation "org.jetbrains.kotlin:kotlin-stdlib:1.9.24"
+              implementation "com.github.cafebazaar.Poolakey:poolakey:2.2.0"
+          }
+          """
+          open(f, "w", encoding="utf-8").write(s)
+          PYEOF
+      - name: Add native plugins (save PDF + Bazaar license)
         run: |
           D=android/app/src/main/java/com/soillab/compaction
           cat > $D/SavePdfPlugin.java <<'EOF'
@@ -82,6 +111,57 @@ jobs:
             }
           }
           EOF
+          cat > $D/BazaarLicensePlugin.kt <<'EOF'
+          package com.soillab.compaction
+
+          import com.getcapacitor.JSObject
+          import com.getcapacitor.Plugin
+          import com.getcapacitor.PluginCall
+          import com.getcapacitor.PluginMethod
+          import com.getcapacitor.annotation.CapacitorPlugin
+          import ir.cafebazaar.poolakey.Connection
+          import ir.cafebazaar.poolakey.Payment
+          import ir.cafebazaar.poolakey.config.PaymentConfiguration
+          import ir.cafebazaar.poolakey.config.SecurityCheck
+
+          @CapacitorPlugin(name = "BazaarLicense")
+          class BazaarLicensePlugin : Plugin() {
+              private var paymentConnection: Connection? = null
+
+              @PluginMethod
+              fun check(call: PluginCall) {
+                  val sku = call.getString("sku")
+                  val rsa = call.getString("rsaKey")
+                  if (sku == null || rsa == null) { call.reject("missing sku or rsaKey"); return }
+
+                  val securityCheck = SecurityCheck.Enable(rsaPublicKey = rsa)
+                  val paymentConfiguration = PaymentConfiguration(localSecurityCheck = securityCheck)
+                  val payment = Payment(context = context, config = paymentConfiguration)
+
+                  paymentConnection = payment.connect {
+                      connectionSucceed {
+                          payment.getPurchasedProducts {
+                              querySucceed { purchasedProducts ->
+                                  val owned = purchasedProducts.any { it.productId == sku }
+                                  val res = JSObject()
+                                  res.put("owned", owned)
+                                  call.resolve(res)
+                                  paymentConnection?.disconnect()
+                              }
+                              queryFailed { throwable ->
+                                  call.reject(throwable.message ?: "query failed")
+                                  paymentConnection?.disconnect()
+                              }
+                          }
+                      }
+                      connectionFailed { throwable ->
+                          call.reject(throwable.message ?: "connection failed")
+                      }
+                      disconnected { }
+                  }
+              }
+          }
+          EOF
           cat > $D/MainActivity.java <<'EOF'
           package com.soillab.compaction;
 
@@ -92,6 +172,7 @@ jobs:
             @Override
             public void onCreate(Bundle savedInstanceState) {
               registerPlugin(SavePdfPlugin.class);
+              registerPlugin(BazaarLicensePlugin.class);
               super.onCreate(savedInstanceState);
             }
           }
