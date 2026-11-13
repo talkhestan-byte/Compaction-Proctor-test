@@ -23,7 +23,7 @@ jobs:
         run: |
           mkdir -p www
           cp index.html www/index.html
-          echo '{"appId":"com.soillab.compaction","appName":"Soil Lab","webDir":"www"}' > capacitor.config.json
+          echo '{"appId":"com.soillab.compaction","appName":"تراکم آزمایشگاهی","webDir":"www"}' > capacitor.config.json
       - name: Add Android project
         run: |
           npx cap add android
