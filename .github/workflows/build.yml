@@ -28,7 +28,7 @@ jobs:
         run: |
           npx cap add android
           npx capacitor-assets generate --android
-            - name: Enable Kotlin and add Poolakey
+      - name: Enable Kotlin and add Poolakey
         run: |
           python3 - <<'PYEOF'
           f = "android/app/build.gradle"
