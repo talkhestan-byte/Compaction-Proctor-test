@@ -15,7 +15,7 @@ body{margin:0;font:14px Roboto,Arial,sans-serif;font-feature-settings:"lnum";bac
 .menu{position:absolute;left:10px;top:100%;min-width:160px;background:#fff;border:1px solid var(--line);border-radius:6px;box-shadow:0 4px 14px #0004;overflow:hidden}
 .menu button{display:block;width:100%;margin:0;border:0;border-bottom:1px solid var(--line);border-radius:0;background:#fff;color:var(--ink);text-align:right;padding:12px 14px}
 .sheet{width:calc(100% - 20px);max-width:860px;margin:10px auto;background:#fff;border:1px solid var(--line);padding:12px}
-.sheet h2{font-size:15px;margin:0 0 10px;text-align:center}
+.sheet h2{font-size:16px;margin:0 0 10px;text-align:right}
 .blk{margin-bottom:12px;padding-bottom:12px;border-bottom:1px solid var(--line)}
 .blk:last-child{border-bottom:0;margin-bottom:0;padding-bottom:0}
 .blk h3{font-size:13px;margin:0 0 8px}
@@ -54,12 +54,12 @@ canvas{width:100%;height:400px;display:block}
 </header>
 
 <main class="sheet">
- <h2>برگه آزمایش تراکم خاک</h2>
+ <h2>آزمایش تراکم خاک</h2>
  <section class="blk">
   <div class="info">
    <label class="wide">نام پروژه<input id="proj" type="text" style="text-align:right"></label>
    <label>تاریخ آزمون<input id="dt" type="text" class="n" inputmode="numeric" placeholder="1405/01/01"></label>
-   <label>نوع آزمایش<select id="type"><option>استاندارد (D698 / T99)</option><option>اصلاح‌شده (D1557 / T180)</option></select></label>
+   <label>نوع آزمایش<select id="type"><option>استاندارد (ASTM D698 / AASHTO T99)</option><option>اصلاح‌شده (ASTM D1557 / AASHTO T180)</option></select></label>
    <label>قالب<select id="preset"><option value="944">4 inch (944 cm³)</option><option value="2124">6 inch (2124 cm³)</option><option value="">دلخواه</option></select></label>
    <label>حجم قالب (cm³)<input id="vol" type="text" class="n" inputmode="decimal" value="944"></label>
    <label>جرم قالب (g)<input id="mold" type="text" class="n" inputmode="decimal"></label>
@@ -74,6 +74,16 @@ canvas{width:100%;height:400px;display:block}
   <div class="res">
    <div>رطوبت بهینه OMC<b id="omc">—</b></div>
    <div>حداکثر وزن مخصوص خشک<b id="gdm">—</b></div>
+  </div>
+  <h3 style="margin-top:14px">اصلاح درشت‌دانه (ASTM D4718)</h3>
+  <div class="info">
+   <label>درصد درشت‌دانه Pc (%)<input id="pc" type="text" class="n" inputmode="decimal"></label>
+   <label>وزن مخصوص حجمی درشت‌دانه Gm<input id="gm" type="text" class="n" inputmode="decimal"></label>
+   <label>جذب آب درشت‌دانه (%)<input id="wcz" type="text" class="n" inputmode="decimal"></label>
+  </div>
+  <div class="res">
+   <div>γdmax اصلاح‌شده<b id="dcor">—</b></div>
+   <div>OMC اصلاح‌شده<b id="wcor">—</b></div>
   </div>
  </section>
 
@@ -243,12 +253,25 @@ function render(x,W,H,pts,Gs){
   return {wo,dm};
 }
 
+function oszCalc(){
+  const r=last.r,Pc=num('pc'),Gm=num('gm'),wc=num('wcz');
+  if(!r||!(Pc>0)||!(Pc<100)||!(Gm>0))return null;
+  const Pf=100-Pc;
+  return {dc:100/(Pf/r.dm+Pc/Gm),wo:(Pf*r.wo+Pc*(isFinite(wc)?wc:0))/100};
+}
+function showOsz(){
+  const o=oszCalc();
+  $('dcor').textContent=o?o.dc.toFixed(3)+' g/cm³':'—';
+  $('wcor').textContent=o?o.wo.toFixed(1)+' %':'—';
+}
+
 function draw(pts,Gs){
   last={pts,Gs};
   const cv=$('cv'),dpr=window.devicePixelRatio||1,W=cv.clientWidth,H=cv.clientHeight;
   cv.width=W*dpr;cv.height=H*dpr;
   const x=cv.getContext('2d');x.scale(dpr,dpr);
   const r=render(x,W,H,pts,Gs);
+  last.r=r;showOsz();
   $('omc').textContent=r?r.wo.toFixed(1)+' %':'—';
   $('gdm').textContent=r?r.dm.toFixed(3)+' g/cm³':'—';
 }
@@ -273,7 +296,7 @@ function renderPage(){
   const x=cv.getContext('2d');x.scale(S,S);
   x.fillStyle='#fff';x.fillRect(0,0,PW,PH);
   x.fillStyle='#14233a';x.direction='rtl';x.textBaseline='middle';
-  x.textAlign='right';x.font='bold 17px '+FF;x.fillText('برگه آزمایش تراکم خاک',PW-M,26);
+  x.textAlign='right';x.font='bold 17px '+FF;x.fillText('آزمایش تراکم خاک',PW-M,26);
   x.font='11px '+FF;
   x.fillText('نام پروژه: '+($('proj').value||'-'),PW-M,50);
   x.textAlign='left';x.fillText('تاریخ آزمون: '+($('dt').value||'-'),M,50);
@@ -299,9 +322,12 @@ function renderPage(){
   });
   x.font='bold 12px '+FF;x.textAlign='right';x.fillStyle='#14233a';
   x.fillText(`OMC: ${$('omc').textContent}        γdmax: ${$('gdm').textContent}`,PW-M,y+16);
-  x.save();x.translate(M,y+30);render(x,PW-2*M,370,last.pts,last.Gs);x.restore();
+  const o=oszCalc();
+  if(o)x.fillText(`اصلاح درشت‌دانه:  Pc=${$('pc').value}%   Gm=${$('gm').value}   جذب آب=${$('wcz').value||0}%   ←   γdmax=${o.dc.toFixed(3)} g/cm³   OMC=${o.wo.toFixed(1)} %`,PW-M,y+34);
+  const cy=y+(o?48:30),CH=350;
+  x.save();x.translate(M,cy);render(x,PW-2*M,CH,last.pts,last.Gs);x.restore();
   // description
-  const dy=y+30+370+10;
+  const dy=cy+CH+10;
   x.textBaseline='middle';x.direction='rtl';
   x.font='bold 12px '+FF;x.textAlign='right';x.fillStyle='#14233a';x.fillText('توضیحات:',PW-M,dy+10);
   x.font='11px '+FF;
@@ -396,6 +422,8 @@ $('menu').onclick=e=>{
 };
 $('ok').onclick=()=>{const n=clean($('fname').value);if(!n){$('fname').focus();return}$('dlg').hidden=true;exportPDF(n,'save')};
 $('no').onclick=()=>{$('dlg').hidden=true};
+
+['pc','gm','wcz'].forEach(k=>$(k).addEventListener('input',showOsz));
 calc();
 </script>
 </body>
