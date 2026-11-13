@@ -427,6 +427,46 @@ $('no').onclick=()=>{$('dlg').hidden=true};
 
 ['pc','gm','wcz'].forEach(k=>$(k).addEventListener('input',showOsz));
 calc();
+
+/* ---------- Bazaar license check (edit these two after setting up the SKU) ---------- */
+const BAZAAR_SKU='soillab_full';
+const BAZAAR_RSA='PUT_YOUR_BAZAAR_RSA_PUBLIC_KEY_HERE';
+const GRACE_MS=2*24*60*60*1000;
+
+function lockUI(msg){
+  document.querySelectorAll('main.sheet').forEach(e=>e.style.display='none');
+  $('mb').style.display='none';
+  let l=$('lock');
+  if(!l){
+    l=document.createElement('div');l.id='lock';
+    l.style.cssText='position:fixed;inset:0;background:var(--bg);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:24px;text-align:center;z-index:50';
+    document.body.appendChild(l);
+    const b=document.createElement('button');b.id='lockRetry';b.textContent='تلاش دوباره';
+    b.onclick=()=>{l.remove();document.querySelectorAll('main.sheet').forEach(e=>e.style.display='');$('mb').style.display='';checkLicense()};
+    const p=document.createElement('div');p.id='lockMsg';p.style.cssText='font-size:15px;max-width:320px';p.textContent=msg;
+    l.appendChild(p);l.appendChild(b);
+  }else $('lockMsg').textContent=msg;
+}
+function unlockUI(){const l=$('lock');if(l)l.remove()}
+
+function checkLicense(){
+  const P=window.Capacitor&&Capacitor.Plugins;
+  if(!P||!P.BazaarLicense)return; // web/dev build: no gate
+  const lastOk=parseInt(localStorage.getItem('lic_ts')||'0',10);
+  let done=false;
+  const timeout=setTimeout(()=>{done=true;onFail()},8000);
+  function onOk(){if(done)return;done=true;clearTimeout(timeout);try{localStorage.setItem('lic_ts',Date.now())}catch(e){}unlockUI()}
+  function onFail(){if(done)return;done=true;clearTimeout(timeout);
+    if(lastOk>0&&Date.now()-lastOk<GRACE_MS)unlockUI();
+    else lockUI('این برنامه باید حداقل هر 2 روز یک‌بار به اینترنت وصل شود تا مجوز خرید آن از کافه‌بازار بررسی شود.');
+  }
+  P.BazaarLicense.check({sku:BAZAAR_SKU,rsaKey:BAZAAR_RSA}).then(r=>{
+    if(done)return;
+    if(r&&r.owned)onOk();
+    else{done=true;clearTimeout(timeout);try{localStorage.removeItem('lic_ts')}catch(e){}lockUI('خرید این برنامه برای این حساب کافه‌بازار یافت نشد.')}
+  }).catch(()=>onFail());
+}
+checkLicense();
 </script>
 </body>
 </html>
