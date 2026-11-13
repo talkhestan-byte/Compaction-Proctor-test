@@ -65,7 +65,7 @@ canvas{width:100%;height:400px;display:block}
    <label>جرم قالب (g)<input id="mold" type="text" class="n" inputmode="decimal"></label>
    <label>وزن مخصوص دانه‌ها Gs<input id="gs" type="text" class="n" inputmode="decimal" value="2.65"></label>
   </div>
-  <button id="demo">پر کردن با داده‌ی نمونه</button>
+  
  </section>
 
  <section class="blk">
@@ -290,6 +290,14 @@ function wrapText(x,text,maxW){
   return out;
 }
 
+function rowRL(x,parts,xr,y){
+  let cx=xr;
+  parts.forEach(([t,d,g])=>{
+    x.direction=d||'rtl';x.textAlign='right';
+    x.fillText(t,cx,y);cx-=x.measureText(t).width+(g===undefined?6:g);
+  });
+}
+
 function renderPage(){
   const S=2,PW=794,PH=1123,M=20,cv=document.createElement('canvas');
   cv.width=PW*S;cv.height=PH*S;
@@ -298,10 +306,10 @@ function renderPage(){
   x.fillStyle='#14233a';x.direction='rtl';x.textBaseline='middle';
   x.textAlign='right';x.font='bold 17px '+FF;x.fillText('آزمایش تراکم خاک',PW-M,26);
   x.font='11px '+FF;
-  x.fillText('نام پروژه: '+($('proj').value||'-'),PW-M,50);
-  x.textAlign='left';x.fillText('تاریخ آزمون: '+($('dt').value||'-'),M,50);
-  x.textAlign='right';
-  x.fillText(`${$('type').value}   |   حجم قالب: ${$('vol').value||'-'} cm³   |   جرم قالب: ${$('mold').value||'-'} g   |   Gs: ${$('gs').value||'-'}`,PW-M,68);
+  const tt=$('type').value,tm=tt.match(/^(.*?)\s*\((.*)\)$/),tn=tm?tm[1]:tt,tc=tm?tm[2]:'',v=id=>$(id).value.trim()||'-';
+  rowRL(x,[['نام پروژه:'],[v('proj'),'rtl',44],['تاریخ آزمون:'],[v('dt'),'ltr']],PW-M,50);
+  rowRL(x,[['نوع آزمایش:'],[tn],[tc,'ltr',24],['حجم قالب:'],[v('vol')+' cm³','ltr',24],['جرم قالب:'],[v('mold')+' g','ltr',24],['وزن مخصوص Gs:'],[v('gs'),'ltr']],PW-M,68);
+  x.direction='rtl';
   x.strokeStyle='#14233a';x.lineWidth=1;x.beginPath();x.moveTo(M,78);x.lineTo(PW-M,78);x.stroke();
   const LW=150,CW=(PW-2*M-LW)/(2*N),RH=17;
   let y=86;
@@ -320,12 +328,17 @@ function renderPage(){
     });
     y+=RH;
   });
-  x.font='bold 12px '+FF;x.textAlign='right';x.fillStyle='#14233a';
-  x.fillText(`OMC: ${$('omc').textContent}        γdmax: ${$('gdm').textContent}`,PW-M,y+16);
   const o=oszCalc();
-  if(o)x.fillText(`اصلاح درشت‌دانه:  Pc=${$('pc').value}%   Gm=${$('gm').value}   جذب آب=${$('wcz').value||0}%   ←   γdmax=${o.dc.toFixed(3)} g/cm³   OMC=${o.wo.toFixed(1)} %`,PW-M,y+34);
-  const cy=y+(o?48:30),CH=350;
-  x.save();x.translate(M,cy);render(x,PW-2*M,CH,last.pts,last.Gs);x.restore();
+  x.font='bold 12px '+FF;x.fillStyle='#14233a';
+  rowRL(x,[['رطوبت بهینه (OMC):'],[$('omc').textContent,'ltr',34],['حداکثر وزن مخصوص خشک (γdmax):'],[$('gdm').textContent,'ltr']],PW-M,y+16);
+  x.font='11px '+FF;
+  if(o){
+    rowRL(x,[['اصلاح درشت‌دانه (ASTM D4718):','rtl',26],['درصد درشت‌دانه Pc:'],[v('pc')+' %','ltr',22],['وزن مخصوص حجمی Gm:'],[v('gm'),'ltr',22],['جذب آب:'],[($('wcz').value.trim()||'0')+' %','ltr']],PW-M,y+36);
+    rowRL(x,[['نتیجه‌ی اصلاح:','rtl',26],['γdmax اصلاح‌شده:'],[o.dc.toFixed(3)+' g/cm³','ltr',22],['OMC اصلاح‌شده:'],[o.wo.toFixed(1)+' %','ltr']],PW-M,y+54);
+  }
+  x.direction='rtl';
+  const cy=y+(o?72:30),CH=350,GW=600;
+  x.save();x.translate(M+(PW-2*M-GW)/2,cy);render(x,GW,CH,last.pts,last.Gs);x.restore();
   // description
   const dy=cy+CH+10;
   x.textBaseline='middle';x.direction='rtl';
@@ -370,10 +383,12 @@ const toast=t=>{const d=$('toast');d.textContent=t;d.hidden=false;clearTimeout(t
 async function exportPDF(name,mode){
   try{
     const u8=makePDF(renderPage()),fn=clean(name)+'.pdf',P=window.Capacitor&&Capacitor.Plugins;
-    if(P&&P.Filesystem){
+    if(P&&(P.SavePdf||P.Filesystem)){
       const data=b64(u8);
       if(mode==='save'){
-        try{await P.Filesystem.writeFile({path:fn,data,directory:'DOCUMENTS',recursive:true});toast('ذخیره شد: Documents/'+fn);return}catch(e){}
+        if(P.SavePdf){try{const r=await P.SavePdf.save({name:fn,data});toast('ذخیره شد: '+(r.path||'Download/'+fn));return}catch(e){}}
+        if(P.Filesystem){try{await P.Filesystem.writeFile({path:fn,data,directory:'DOCUMENTS',recursive:true});toast('ذخیره شد: Documents/'+fn);return}catch(e){}}
+        toast('ذخیره‌ی مستقیم ممکن نشد. از منوی اشتراک‌گذاری استفاده کن.');return;
       }
       const r=await P.Filesystem.writeFile({path:fn,data,directory:'CACHE'});
       await P.Share.share({title:fn,files:[r.uri]});
@@ -383,18 +398,6 @@ async function exportPDF(name,mode){
       else{const a=document.createElement('a');a.href=URL.createObjectURL(f);a.download=fn;a.click()}
     }
   }catch(e){toast('خطا: '+(e.message||e))}
-}
-
-function demo(){
-  $('proj').value='پروژه نمونه';$('mold').value=4200;
-  const w=[8,10,12,14,16],gd=[1.80,1.86,1.90,1.87,1.82];
-  for(let i=0;i<N;i++){
-    $('m'+i).value=(4200+gd[i]*(1+w[i]/100)*944).toFixed(0);
-    [0,0.2].forEach((dv,j)=>{
-      $('ta'+i+j).value=30;$('dr'+i+j).value=130;$('wt'+i+j).value=(130+w[i]+dv).toFixed(1);
-    });
-  }
-  calc();
 }
 
 /* digits: always Latin */
@@ -410,7 +413,6 @@ const now=new Date();$('dt').value=g2j(now.getFullYear(),now.getMonth()+1,now.ge
 $('tb').addEventListener('input',calc);
 ['vol','mold','gs'].forEach(k=>$(k).addEventListener('input',calc));
 $('preset').onchange=e=>{if(e.target.value){$('vol').value=e.target.value;calc()}};
-$('demo').onclick=demo;
 window.addEventListener('resize',calc);
 
 $('mb').onclick=e=>{e.stopPropagation();$('menu').hidden=!$('menu').hidden};
