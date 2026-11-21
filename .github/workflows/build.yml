@@ -1,65 +1,49 @@
+
 name: Build APK
+
 on:
   workflow_dispatch:
   push:
+
 jobs:
   build:
     runs-on: ubuntu-latest
+
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: 21
+
       - name: Install Capacitor
         run: |
           npm init -y
           npm i @capacitor/core @capacitor/cli @capacitor/android @capacitor/filesystem @capacitor/share
           npm i -D @capacitor/assets
+
       - name: Prepare web files
         run: |
           mkdir -p www
           cp index.html www/index.html
           echo '{"appId":"com.soillab.compaction","appName":"تراکم آزمایشگاهی","webDir":"www"}' > capacitor.config.json
+
       - name: Add Android project
         run: |
           npx cap add android
           npx capacitor-assets generate --android
-      - name: Enable Kotlin and add Poolakey
-        run: |
-          python3 - <<'PYEOF'
-          f = "android/app/build.gradle"
-          s = open(f, encoding="utf-8").read()
-          header = """buildscript {
-              repositories {
-                  google()
-                  mavenCentral()
-              }
-              dependencies {
-                  classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:2.2.20"
-              }
-          }
-          """
-          assert s.startswith("apply plugin: 'com.android.application'")
-          s = header + "apply plugin: 'com.android.application'\napply plugin: 'kotlin-android'\n" + s[len("apply plugin: 'com.android.application'\n"):]
-          s += """
 
-          repositories {
-              maven { url 'https://jitpack.io' }
-          }
-          dependencies {
-              implementation "com.github.cafebazaar.Poolakey:poolakey:2.2.0"
-          }
-          """
-          open(f, "w", encoding="utf-8").write(s)
-          PYEOF
-      - name: Add native plugins (save PDF + Bazaar license)
+      - name: Add native PDF plugin
         run: |
           D=android/app/src/main/java/com/soillab/compaction
-          cat > $D/SavePdfPlugin.java <<'EOF'
+          mkdir -p "$D"
+
+          cat > "$D/SavePdfPlugin.java" <<'EOF'
           package com.soillab.compaction;
 
           import android.content.ContentResolver;
@@ -84,84 +68,63 @@ jobs:
             public void save(PluginCall call) {
               String name = call.getString("name", "report.pdf");
               String data = call.getString("data");
-              if (data == null) { call.reject("no data"); return; }
+
+              if (data == null) {
+                call.reject("no data");
+                return;
+              }
+
               try {
                 byte[] bytes = Base64.decode(data, Base64.DEFAULT);
+
                 if (Build.VERSION.SDK_INT >= 29) {
                   ContentResolver cr = getContext().getContentResolver();
                   ContentValues v = new ContentValues();
+
                   v.put(MediaStore.MediaColumns.DISPLAY_NAME, name);
                   v.put(MediaStore.MediaColumns.MIME_TYPE, "application/pdf");
-                  v.put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS);
-                  Uri uri = cr.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, v);
-                  if (uri == null) { call.reject("insert failed"); return; }
-                  try (OutputStream os = cr.openOutputStream(uri)) { os.write(bytes); }
+                  v.put(MediaStore.MediaColumns.RELATIVE_PATH,
+                      Environment.DIRECTORY_DOWNLOADS);
+
+                  Uri uri = cr.insert(
+                      MediaStore.Downloads.EXTERNAL_CONTENT_URI, v);
+
+                  if (uri == null) {
+                    call.reject("insert failed");
+                    return;
+                  }
+
+                  try (OutputStream os = cr.openOutputStream(uri)) {
+                    if (os == null) {
+                      call.reject("open failed");
+                      return;
+                    }
+                    os.write(bytes);
+                  }
+
                 } else {
-                  File dir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS);
+                  File dir = Environment.getExternalStoragePublicDirectory(
+                      Environment.DIRECTORY_DOWNLOADS);
                   dir.mkdirs();
-                  try (FileOutputStream os = new FileOutputStream(new File(dir, name))) { os.write(bytes); }
+
+                  try (FileOutputStream os =
+                      new FileOutputStream(new File(dir, name))) {
+                    os.write(bytes);
+                  }
                 }
+
                 JSObject res = new JSObject();
                 res.put("path", "Download/" + name);
                 call.resolve(res);
+
               } catch (Exception e) {
                 call.reject(String.valueOf(e.getMessage()));
               }
             }
           }
           EOF
-          cat > $D/BazaarLicensePlugin.kt <<'EOF'
-          package com.soillab.compaction
 
-          import com.getcapacitor.JSObject
-          import com.getcapacitor.Plugin
-          import com.getcapacitor.PluginCall
-          import com.getcapacitor.PluginMethod
-          import com.getcapacitor.annotation.CapacitorPlugin
-          import ir.cafebazaar.poolakey.Connection
-          import ir.cafebazaar.poolakey.Payment
-          import ir.cafebazaar.poolakey.config.PaymentConfiguration
-          import ir.cafebazaar.poolakey.config.SecurityCheck
-
-          @CapacitorPlugin(name = "BazaarLicense")
-          class BazaarLicensePlugin : Plugin() {
-              private var paymentConnection: Connection? = null
-
-              @PluginMethod
-              fun check(call: PluginCall) {
-                  val sku = call.getString("sku")
-                  val rsa = call.getString("rsaKey")
-                  if (sku == null || rsa == null) { call.reject("missing sku or rsaKey"); return }
-
-                  val securityCheck = SecurityCheck.Enable(rsaPublicKey = rsa)
-                  val paymentConfiguration = PaymentConfiguration(localSecurityCheck = securityCheck)
-                  val payment = Payment(context = context, config = paymentConfiguration)
-
-                  paymentConnection = payment.connect {
-                      connectionSucceed {
-                          payment.getPurchasedProducts {
-                              querySucceed { purchasedProducts ->
-                                  val owned = purchasedProducts.any { it.productId == sku }
-                                  val res = JSObject()
-                                  res.put("owned", owned)
-                                  call.resolve(res)
-                                  paymentConnection?.disconnect()
-                              }
-                              queryFailed { throwable ->
-                                  call.reject(throwable.message ?: "query failed")
-                                  paymentConnection?.disconnect()
-                              }
-                          }
-                      }
-                      connectionFailed { throwable ->
-                          call.reject(throwable.message ?: "connection failed")
-                      }
-                      disconnected { }
-                  }
-              }
-          }
-          EOF
-          cat > $D/MainActivity.java <<'EOF'
+          cat > "$D/MainActivity.java" <<'EOF'
           package com.soillab.compaction;
 
           import android.os.Bundle;
@@ -171,16 +134,17 @@ jobs:
             @Override
             public void onCreate(Bundle savedInstanceState) {
               registerPlugin(SavePdfPlugin.class);
-              registerPlugin(BazaarLicensePlugin.class);
               super.onCreate(savedInstanceState);
             }
           }
           EOF
+
       - name: Decode release keystore
         env:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
         run: |
           echo "$KEYSTORE_BASE64" | base64 -d > android/app/release-key.jks
+
       - name: Add signing config
         run: |
           cat >> android/app/build.gradle <<'EOF'
@@ -201,6 +165,7 @@ jobs:
               }
           }
           EOF
+
       - name: Build Android
         env:
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
@@ -211,6 +176,7 @@ jobs:
           cd android
           chmod +x gradlew
           ./gradlew assembleRelease
+
       - uses: actions/upload-artifact@v4
         with:
           name: soil-lab-apk-release
